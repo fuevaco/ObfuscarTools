@@ -1,278 +1,279 @@
-﻿using EnvDTE;
-using EnvDTE80;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
-using System.Xml;
+using EnvDTE;
+using Microsoft.VisualStudio.Shell;
 using VSLangProj;
 
 namespace ObfuscarTools
 {
-	class DotNetProject
-	{
-		public VSProject Project { get; private set; }
-		ObfuscarToolsPackage package;
-		public string FileName
-		{
-			get
-			{
-				ThreadHelper.ThrowIfNotOnUIThread();
-				return Project.Project.FullName;
-			}
-		}
+    internal class DotNetProject
+    {
+        private ObfuscarToolsPackage package;
 
-		public string Name
-		{
-			get
-			{
-				ThreadHelper.ThrowIfNotOnUIThread();
-				return Project.Project.Name;
-			}
-		}
+        public DotNetProject(ObfuscarToolsPackage pkg, VSProject proj)
+        {
+            Project = proj;
+            package = pkg;
+        }
 
-		public string ProjectDir => new FileInfo(FileName).Directory.FullName;
-		public string ObfuscarDir => ProjectDir + "\\_Obfuscar";
-		public string ObfuscarBaseConfigFile => Path.Combine(ObfuscarDir, "obfuscar.xml");
-		public string StartupDir
-		{
-			get
-			{
-				ThreadHelper.ThrowIfNotOnUIThread();
-				return Path.GetDirectoryName(Project.Project.FileName);
-			}
-		}
+        public VSProject Project { get; }
 
-		public bool IsNetFrameworkProject()
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
-			bool isFramework = false;
-			foreach (Property prop in Project.Project.Properties)
-			{
-				if (prop.Name == "TargetFrameworkMoniker")
-				{
-					var frameworkVersion = prop.Value.ToString();
-					isFramework = frameworkVersion.StartsWith(".NETFramework");
-				}
-			}
-			return isFramework;
-		}
+        public string FileName
+        {
+            get
+            {
+                ThreadHelper.ThrowIfNotOnUIThread();
+                return Project.Project.FullName;
+            }
+        }
 
-		public List<Configuration> GetAllConfigurations()
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
+        public string Name
+        {
+            get
+            {
+                ThreadHelper.ThrowIfNotOnUIThread();
+                return Project.Project.Name;
+            }
+        }
 
-			var rowNames = Project.Project.ConfigurationManager.ConfigurationRowNames as object[];
+        public string ProjectDir => new FileInfo(FileName).Directory.FullName;
+        public string ObfuscarDir => ProjectDir + "\\_Obfuscar";
+        public string ObfuscarBaseConfigFile => Path.Combine(ObfuscarDir, "obfuscar.xml");
 
-			var configurations = new List<Configuration>();
-			foreach (var row in rowNames)
-			{
-				var configRow = Project.Project.ConfigurationManager.ConfigurationRow(row.ToString());
-				var en = configRow.GetEnumerator();
+        public string StartupDir
+        {
+            get
+            {
+                ThreadHelper.ThrowIfNotOnUIThread();
+                return Path.GetDirectoryName(Project.Project.FileName);
+            }
+        }
 
-				while (en.MoveNext())
-				{
-					Configuration item = en.Current as Configuration;
-					configurations.Add(item);
-				}
-			}
-			return configurations;
-		}
+        public Configuration ActiveBuildConfig
+        {
+            get
+            {
+                try
+                {
+                    ThreadHelper.ThrowIfNotOnUIThread();
+                    return Project.Project.ConfigurationManager.ActiveConfiguration;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
 
-		public Configuration GetConfiguration(string name, string platformName)
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
+        public bool IsNetFrameworkProject()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var isFramework = false;
+            foreach (Property prop in Project.Project.Properties)
+            {
+                if (prop.Name == "TargetFrameworkMoniker")
+                {
+                    var frameworkVersion = prop.Value.ToString();
+                    isFramework = frameworkVersion.StartsWith(".NETFramework");
+                }
+            }
 
-			var rowNames = Project.Project.ConfigurationManager.ConfigurationRowNames as object[];
+            return isFramework;
+        }
 
-			foreach (var row in rowNames)
-			{
-				var configName = row.ToString();
-				if (configName != name) continue;
+        public List<Configuration> GetAllConfigurations()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
 
-				var configRow = Project.Project.ConfigurationManager.ConfigurationRow(configName);
+            var rowNames = Project.Project.ConfigurationManager.ConfigurationRowNames as object[];
 
-				var en = configRow.GetEnumerator();
+            var configurations = new List<Configuration>();
+            foreach (var row in rowNames)
+            {
+                var configRow = Project.Project.ConfigurationManager.ConfigurationRow(row.ToString());
+                var en = configRow.GetEnumerator();
 
-				while (en.MoveNext())
-				{
-					Configuration item = en.Current as Configuration;
-					if (item.PlatformName == platformName) return item;
-				}
-			}
-			return null;
-		}
+                while (en.MoveNext())
+                {
+                    var item = en.Current as Configuration;
+                    configurations.Add(item);
+                }
+            }
 
+            return configurations;
+        }
 
-		public string GetOutputPath(Configuration configuration)
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
-			var objPath = "";
-			var binPath = "";
+        public Configuration GetConfiguration(string name, string platformName)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
 
-			foreach (Property prop in configuration.Properties)
-			{
-				if (prop.Name == "IntermediatePath") objPath = prop.Value.ToString();
-				if (prop.Name == "OutputPath") binPath = prop.Value.ToString();
-			}
+            var rowNames = Project.Project.ConfigurationManager.ConfigurationRowNames as object[];
 
-			if (IsNetFrameworkProject()) return objPath;
-			return binPath;
-		}
+            foreach (var row in rowNames)
+            {
+                var configName = row.ToString();
+                if (configName != name) continue;
 
-		public bool IsObfuscated(string buildConfig, string platform)
-		{
-			var mgr = new AfterCompileManager(Project, IsNetFrameworkProject());
-			return mgr.HasAfterCompileTarget(buildConfig, platform);
-		}
+                var configRow = Project.Project.ConfigurationManager.ConfigurationRow(configName);
 
-		public Configuration ActiveBuildConfig
-		{
-			get
-			{
-				try
-				{
-					ThreadHelper.ThrowIfNotOnUIThread();
-					return Project.Project.ConfigurationManager.ActiveConfiguration;
-				}
-				catch
-				{
-					return null;
-				}
-			}
-		}
+                var en = configRow.GetEnumerator();
 
-		public DotNetProject(ObfuscarToolsPackage pkg, VSProject proj)
-		{
-			Project = proj;
-			package = pkg;
-		}
+                while (en.MoveNext())
+                {
+                    var item = en.Current as Configuration;
+                    if (item.PlatformName == platformName) return item;
+                }
+            }
 
-		public void CopyObfuscar()
-		{
-			var fileNames = new string[] { "Obfuscar.Console.exe" };
-			string srcDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "\\files\\";
-
-			Directory.CreateDirectory(ObfuscarDir);
-
-			foreach (var f in fileNames)
-			{
-				File.Copy(srcDir + f, ObfuscarDir + "\\" + f, true);
-			}
-		}
-
-		public List<string> GetProbePaths()
-		{
-			var ret = new List<string>();
-			foreach (Reference r in Project.References)
-			{
-				var fileName = r.Path;
-				if (fileName == null || fileName == "") continue;
-				var folderName = new FileInfo(fileName).Directory.FullName;
-				if (ret.Contains(folderName) == false) ret.Add(folderName);
-			}
-			return ret;
-		}
-
-		public void WriteBaseConfig(string path)
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
-
-			ThreadHelper.ThrowIfNotOnUIThread();
-			List<string> probePaths = GetProbePaths();
-			var solutionDir = new FileInfo(SolutionManager.GetActiveSolution().FullName).Directory.FullName;
-			ObfuscarBaseConfig config = new ObfuscarBaseConfig();
-			if (File.Exists(path))
-			{
-				config = ObfuscarBaseConfig.Read(path);
-			}
-
-			string moduleName = Project.Project.Properties.Item("OutputFileName").Value.ToString();
-			config.Module = "$(InPath)\\" + moduleName;
-
-			config.AssemblySearchPaths.Clear();
-			foreach (var pp in probePaths)
-			{
-				if (pp.StartsWith(solutionDir))
-				{
-					config.AssemblySearchPaths.Add(GetRelativePath(pp, StartupDir));
-				}
-				else
-				{
-					config.AssemblySearchPaths.Add(pp);
-				}
-			}
-
-			config.Write(path);
-		}
+            return null;
+        }
 
 
-		public void WriteConfig(Configuration projectConfig, string path)
-		{
-			ThreadHelper.ThrowIfNotOnUIThread();
-			List<string> probePaths = GetProbePaths();
-			ObfuscarConfig config = new ObfuscarConfig();
-			if (File.Exists(path))
-			{
-				config = ObfuscarConfig.Read(path);
-			}
+        public string GetOutputPath(Configuration configuration)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var objPath = "";
+            var binPath = "";
 
-			var outputPath = GetOutputPath(projectConfig);
-			config.InPath = outputPath;
-			config.OutPath = outputPath + "\\Out";
-			config.BaseConfigPath = GetRelativePath(ObfuscarBaseConfigFile, StartupDir);
-			config.Write(path);
-		}
+            foreach (Property prop in configuration.Properties)
+            {
+                if (prop.Name == "IntermediatePath") objPath = prop.Value.ToString();
+                if (prop.Name == "OutputPath") binPath = prop.Value.ToString();
+            }
 
-		string GetRelativePath(string filespec, string folder)
-		{
-			Uri pathUri = new Uri(filespec);
-			// Folders must end in a slash
-			if (!folder.EndsWith(Path.DirectorySeparatorChar.ToString()))
-			{
-				folder += Path.DirectorySeparatorChar;
-			}
-			Uri folderUri = new Uri(folder);
-			return Uri.UnescapeDataString(folderUri.MakeRelativeUri(pathUri).ToString().Replace('/', Path.DirectorySeparatorChar));
-		}
+            if (IsNetFrameworkProject()) return objPath;
+            return binPath;
+        }
+
+        public bool IsObfuscated(string buildConfig, string platform)
+        {
+            var mgr = new AfterCompileManager(Project, IsNetFrameworkProject());
+            return mgr.HasAfterCompileTarget(buildConfig, platform);
+        }
+
+        public void CopyObfuscar()
+        {
+            var fileNames = new[] { "Obfuscar.Console.exe" };
+            var srcDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "\\files\\";
+
+            Directory.CreateDirectory(ObfuscarDir);
+
+            foreach (var f in fileNames)
+            {
+                File.Copy(srcDir + f, ObfuscarDir + "\\" + f, true);
+            }
+        }
+
+        public List<string> GetProbePaths()
+        {
+            var ret = new List<string>();
+            foreach (Reference r in Project.References)
+            {
+                var fileName = r.Path;
+                if (fileName == null || fileName == "") continue;
+                var folderName = new FileInfo(fileName).Directory.FullName;
+                if (ret.Contains(folderName) == false) ret.Add(folderName);
+            }
+
+            return ret;
+        }
+
+        public void WriteBaseConfig(string path)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var probePaths = GetProbePaths();
+            var solutionDir = new FileInfo(SolutionManager.GetActiveSolution().FullName).Directory.FullName;
+            var config = new ObfuscarBaseConfig();
+            if (File.Exists(path))
+            {
+                config = ObfuscarBaseConfig.Read(path);
+            }
+
+            var moduleName = Project.Project.Properties.Item("OutputFileName").Value.ToString();
+            config.Module = "$(InPath)\\" + moduleName;
+
+            config.AssemblySearchPaths.Clear();
+            foreach (var pp in probePaths)
+            {
+                if (pp.StartsWith(solutionDir))
+                {
+                    config.AssemblySearchPaths.Add(GetRelativePath(pp, StartupDir));
+                }
+                else
+                {
+                    config.AssemblySearchPaths.Add(pp);
+                }
+            }
+
+            config.Write(path);
+        }
 
 
-		public void AddObfuscarBaseConfig()
-		{
-			CopyObfuscar();
-			WriteBaseConfig(ObfuscarBaseConfigFile);
-		}
+        public void WriteConfig(Configuration projectConfig, string path)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var probePaths = GetProbePaths();
+            var config = new ObfuscarConfig();
+            if (File.Exists(path))
+            {
+                config = ObfuscarConfig.Read(path);
+            }
 
-		public void AddObfuscarCommand(string buildConfig, string platform)
-		{
-			var projectConfig = GetConfiguration(buildConfig, platform);
-			if (projectConfig == null) return;
+            var outputPath = GetOutputPath(projectConfig);
+            config.InPath = outputPath;
+            config.OutPath = outputPath + "\\Out";
+            config.BaseConfigPath = GetRelativePath(ObfuscarBaseConfigFile, StartupDir);
+            config.Write(path);
+        }
 
-			var configFileName = $"obfuscar_{buildConfig.Replace(" ", "_")}_{platform.Replace(" ", "_")}.xml";
-			WriteConfig(projectConfig, Path.Combine(ObfuscarDir, configFileName));
+        private string GetRelativePath(string filespec, string folder)
+        {
+            var pathUri = new Uri(filespec);
+            // Folders must end in a slash
+            if (!folder.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                folder += Path.DirectorySeparatorChar;
+            }
 
-			var mgr = new AfterCompileManager(Project, IsNetFrameworkProject());
-			var cmd = new AfterCompileCommand()
-			{
-				PlatformName = platform,
-				BuildConfiguration = buildConfig,
-				ConfigXmlName = configFileName,
-				IntermediatePath = GetOutputPath(projectConfig)
-			};
+            var folderUri = new Uri(folder);
+            return Uri.UnescapeDataString(folderUri.MakeRelativeUri(pathUri).ToString().Replace('/', Path.DirectorySeparatorChar));
+        }
 
-			mgr.AddAfterCompileCommand(cmd);
 
-		}
+        public void AddObfuscarBaseConfig()
+        {
+            CopyObfuscar();
+            WriteBaseConfig(ObfuscarBaseConfigFile);
+        }
 
-		public void RemoveObfuscarCommand(string buildConfig, string platform)
-		{
-			var mgr = new AfterCompileManager(Project, IsNetFrameworkProject());
-			mgr.RemoveAfterCompileTarget(buildConfig, platform);
-		}
-	}
+        public void AddObfuscarCommand(string buildConfig, string platform)
+        {
+            var projectConfig = GetConfiguration(buildConfig, platform);
+            if (projectConfig == null) return;
+
+            var configFileName = $"obfuscar_{buildConfig.Replace(" ", "_")}_{platform.Replace(" ", "_")}.xml";
+            WriteConfig(projectConfig, Path.Combine(ObfuscarDir, configFileName));
+
+            var mgr = new AfterCompileManager(Project, IsNetFrameworkProject());
+            var cmd = new AfterCompileCommand
+            {
+                PlatformName = platform,
+                BuildConfiguration = buildConfig,
+                ConfigXmlName = configFileName,
+                IntermediatePath = GetOutputPath(projectConfig)
+            };
+
+            mgr.AddAfterCompileCommand(cmd);
+        }
+
+        public void RemoveObfuscarCommand(string buildConfig, string platform)
+        {
+            var mgr = new AfterCompileManager(Project, IsNetFrameworkProject());
+            mgr.RemoveAfterCompileTarget(buildConfig, platform);
+        }
+    }
 }
