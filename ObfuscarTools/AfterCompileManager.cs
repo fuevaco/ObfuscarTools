@@ -181,14 +181,13 @@ namespace ObfuscarTools
 				var commands = new List<string>();
 				commands.Add("echo " + BuildConfiguration + "@@" + PlatformName);
 
-				string cmd = $"if \"$(ConfigurationName)\" == \"{BuildConfiguration}\" (if \"$(PlatformName)\" == \"{pName}\" (";
+				var cmd = $"if \"$(ConfigurationName)\" == \"{BuildConfiguration}\" (if \"$(PlatformName)\" == \"{pName}\" (";
 				cmd += $"\"{ObfuscarPath}\" \"$(ProjectDir)_Obfuscar\\{ConfigXmlName}\"\r\n";
-				cmd += $"xcopy /e /v \"$(ProjectDir){IntermediatePath}\\Out\\\" \"$(ProjectDir){IntermediatePath}\" /Y";
+				// 使用基本的 copy 命令來替代
+				cmd += $"copy /Y \"$(ProjectDir){IntermediatePath}\\Out\\*\" \"$(ProjectDir){IntermediatePath}\"";
 				cmd += "))";
 
 				commands.Add(cmd);
-
-
 
 				return string.Join("\r\n", commands);
 			}
